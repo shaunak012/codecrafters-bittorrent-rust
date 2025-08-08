@@ -16,7 +16,8 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
         return serde_json::Value::String(string.to_string());
     } else if encoded_value.starts_with("i"){
         let number_part = &encoded_value[1..encoded_value.len() - 1];
-        return serde_json::Value::String(number_part.to_string());
+        let number=number_part.parse::<i64>().unwrap();
+        return serde_json::Value::Number(number.into());
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
