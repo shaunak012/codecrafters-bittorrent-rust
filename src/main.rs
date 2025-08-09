@@ -148,7 +148,7 @@ fn main() {
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);
 
-        let info_encoded = serde_bencode::to_bytes(&content.info)?;
+        let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
         let mut hasher = Sha1::new();
         hasher.update(&info_encoded);
         let info_hash = hasher.finalize();
