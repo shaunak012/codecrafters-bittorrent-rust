@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize}
+use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 use std::env;
-use std::path::Path
+use std::path::Path;
 
 // Available if you need it!
 // use serde_bencode
@@ -10,16 +10,16 @@ use std::path::Path
 struct TorrentInfo{
     length: u64,
     name: String,
-    #[rename="piece length"]
+    #[serde(rename="piece length")]
     piece_length: u64,
     piece: String
-};
+}
 
 #[derive(Serialize, Deserialize)]
 struct TorrentFile{
     announce:String,
     info: TorrentInfo
-};
+}
 
 fn bencode_ending_index(encoded_value: &str) -> usize {
     if encoded_value.chars().next().unwrap().is_digit(10) {
@@ -122,10 +122,10 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     }
 }
 
-fn parse_torrent_file(path:&str)-> Result<TorrentFile,Box<dyn std::error::Error>>{
+fn parse_torrent_file(path:&Path)-> Result<TorrentFile,Box<dyn std::error::Error>>{
     let bytes = std::fs::read(path)?;
     let torrent: TorrentFile = serde_bencode::de::from_bytes(&bytes)?;
-    OK(torrent)
+    Ok(torrent)
 }
 
 // Usage: your_program.sh decode "<encoded_value>"
@@ -143,8 +143,8 @@ fn main() {
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
         let file_path = Path::new(&args[2]);
-        let content = parse_torrent_file(file_path);
-        println!("Tracker URL: {}\nLength: {}", content.tracker_url, content.length);        
+        let content: TorrentFile = parse_torrent_file(file_path);
+        println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);        
     } else {
         println!("unknown command: {}", args[1]);
     }
