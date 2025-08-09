@@ -3,6 +3,8 @@ use serde_json::{Value};
 use std::env;
 use std::path::Path;
 use sha1::{Digest, Sha1};
+use reqwest;
+use tokio;
 
 // Available if you need it!
 // use serde_bencode
@@ -21,6 +23,12 @@ struct TorrentInfo{
 struct TorrentFile{
     announce:String,
     info: TorrentInfo
+}
+
+#[derive(Serialize, Deserialize)]
+struct TrackerResponse{
+    interval: i32,
+    peers: String
 }
 
 fn bencode_ending_index(encoded_value: &str) -> usize {
@@ -130,7 +138,15 @@ fn parse_torrent_file(path:&Path)-> Result<TorrentFile,Box<dyn std::error::Error
     Ok(torrent)
 }
 
+fn info_hash_generator(content: &TorrentFile){
+    let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
+    let mut hasher = Sha1::new();
+    hasher.update(&info_encoded);
+    let info_hash = hasher.finalize();
+}
+
 // Usage: your_program.sh decode "<encoded_value>"
+#[tokio::main]
 fn main() {
     let args: Vec<String> = env::args().collect();
     let command = &args[1];
@@ -148,15 +164,31 @@ fn main() {
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);
 
-        let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
-        let mut hasher = Sha1::new();
-        hasher.update(&info_encoded);
-        let info_hash = hasher.finalize();
+        let info_hash=info_hash_generator(&content)
         println!("Info Hash: {}", hex::encode(&info_hash)); 
         println!("Piece Length: {}",content.info.piece_length);
         println!("Piece Hashes:\n");
         for hash in content.info.pieces.chunks(20) {
             println!("{}", hex::encode(&hash));
+        }
+    } else if command == "peers" {
+        let client = reqwest::Client::new();
+        
+        let file_path = Path::new(&args[2]);
+        let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
+        let info_hash=info_hash_generator(&content);
+
+        let params = [("info_hash", info_hash), ("peer_id",String::from("00112233445566778899")), ("port",6881), ("uploaded",0), ("downloaded",0), ("left",content.info.length), ("compact",1)];
+        let response = reqwest::get(content.announce).query(&params).send().await?;
+        let body: TrackerResponse = response.text().await?;
+
+        for peer in body.peers.as_bytes().chunks_exact(6) {
+            let ip_bytes: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
+            let ip_address = std::net::Ipv4Addr::from(ip_bytes);
+
+            let port_bytes: [u8; 2] = [chunk[4], chunk[5]];
+            let port = u16::from_be_bytes(port_bytes);
+            println!("{}:{}", ip_address, port);
         }
     } else {
         println!("unknown command: {}", args[1]);
