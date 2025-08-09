@@ -74,7 +74,7 @@ fn bencode_ending_index(encoded_value: &str) -> usize {
 }
 
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
+fn decode_bencoded_value(encoded_value: &str) -> Value {
     // If encoded_value starts with a digit, it's a number
     
     let ending_index = bencode_ending_index(encoded_value);
@@ -83,11 +83,11 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
         // Example: "5:hello" -> "hello"
         let colon_index = encoded_value.find(':').unwrap();
         let string = &encoded_value[colon_index + 1..ending_index];
-        return serde_json::Value::String(string.to_string());
+        return Value::String(string.to_string());
     } else if encoded_value.starts_with("i"){
         let number_part = &encoded_value[1..ending_index-1];
         let number=number_part.parse::<i64>().unwrap();
-        return serde_json::Value::Number(number.into());
+        return Value::Number(number.into());
     } else if encoded_value.starts_with("l"){
         let mut list = vec![];
         let mut current_index = 1; 
@@ -98,14 +98,14 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             list.push(decode_bencoded_value(&encoded_value[current_index..]));
             current_index+=element_end;
         }
-        return serde_json::Value::Array(list);
+        return Value::Array(list);
     } else if encoded_value.starts_with("d"){
         let mut list = serde_json::Map::new();
         let mut current_index =1;
         while current_index < ending_index-1{
             let key_end= bencode_ending_index(&encoded_value[current_index..]);
             let key = match decode_bencoded_value(&encoded_value[current_index..]){
-                    serde_json::Value::String(k) => k,
+                    Value::String(k) => k,
                     k => {
                         panic!("dict keys must be strings, not {k:?}");
                     }
@@ -116,7 +116,7 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             current_index+=value_end;
             list.insert(key,value);
         }
-        return serde_json::Value::Object(list)
+        return Value::Object(list)
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
@@ -143,7 +143,7 @@ fn main() {
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
         let file_path = Path::new(&args[2]);
-        let content: TorrentFile = parse_torrent_file(file_path);
+        let content: TorrentFile = parse_torrent_file(file_path)?;
         println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);        
     } else {
         println!("unknown command: {}", args[1]);
