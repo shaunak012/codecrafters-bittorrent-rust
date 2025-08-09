@@ -13,13 +13,14 @@ fn bencode_ending_index(encoded_value: &str) -> usize {
     } else if encoded_value.starts_with("i"){
         let ending_index = encoded_value.find('e').expect("Invalid bencoded integer format");
         return ending_index+1 ;
-    } else if encoded_value.starts_with("l"){
+    } else if encoded_value.starts_with("l") || encoded_value.starts_with("d"){
         let mut counter = 0;
         let mut i = 0;
         let chars: Vec<char> = encoded_value.chars().collect();
         while i < chars.len(){
             match chars[i] {
-                'l' | 'd' => counter+= 1,
+                'l' => counter+= 1,
+                'd' => counter+= 1,
                 'i' => {
                     // println!("Entry at {}",i);
                     i+=1;
@@ -50,7 +51,7 @@ fn bencode_ending_index(encoded_value: &str) -> usize {
             i+=1;
         }
         return i+1;
-    }else{
+    } else{
         panic!("Invalid string : {}",encoded_value);
     }
 }
@@ -81,6 +82,24 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             current_index+=element_end;
         }
         return serde_json::Value::Array(list);
+    } else if encoded_value.starts_with("d"){
+        let mut list = serde_json::Map::new();
+        let mut current_index =1;
+        while current_index < ending_index-1{
+            let key_end= bencode_ending_index(&encoded_value[current_index..]);
+            let key = match decode_bencoded_value(&encoded_value[current_index..]){
+                    serde_json::Value::String(k) => k,
+                    k => {
+                        panic!("dict keys must be strings, not {k:?}");
+                    }
+                };
+            current_index+=key_end;
+            let value_end = bencode_ending_index(&encoded_value[current_index..]);
+            let value = decode_bencoded_value(&encoded_value[current_index..]);
+            current_index+=value_end;
+            list.insert(key,value);
+        }
+        return serde_json::Value::Object(list)
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
