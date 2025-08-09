@@ -119,12 +119,14 @@ fn main() {
         let decoded_value = decode_bencoded_value(encoded_value);
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
-        let file_path = &args[2];
-        let mut file = std::fs::File::open(file_path)?;
+         let file_path = &args[2];
+        let mut file = std::fs::File::open(file_path);
         let mut buffer: Vec<u8> = Vec::new();
-        let encoded_value = String::from_utf8(buffer);
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let decoded_value = decode_bencoded_value(encoded_value);
+
+        file.read_to_end(&mut buffer)?; 
+
+        let encoded_value = String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let decoded_value = decode_bencoded_value(&encoded_value);
         
         let tracker_url = if let Some(Value::String(s)) = decoded_value.get("announce") {
             s.clone();
