@@ -12,6 +12,7 @@ struct TorrentInfo{
     name: String,
     #[serde(rename="piece length")]
     piece_length: u64,
+    #[serde(with="serde_bytes")]
     pieces: Vec<u8>
 }
 
