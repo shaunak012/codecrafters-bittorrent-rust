@@ -70,7 +70,7 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             list.push(decode_bencoded_value(&encoded_value[current_index..]));
             current_index+=element_end;
         }
-        return serde_json::Value::Array(list);
+        return serde_json::Value::Array(list.into());
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
