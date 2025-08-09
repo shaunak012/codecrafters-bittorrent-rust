@@ -118,6 +118,34 @@ fn main() {
         let encoded_value = &args[2];
         let decoded_value = decode_bencoded_value(encoded_value);
         println!("{}", decoded_value.to_string());
+    } else if command == "info" {
+        let file_path = &args[2];
+        let mut file = File::open(file_path)?;
+        let mut buffer: Vec<u8> = Vec::new();
+        let encoded_value = String::from_utf8(buffer)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let decoded_value = decode_bencoded_value(encoded_value)
+        let tracker_url = if let Some(Value::String(s)) = decoded_value.get("announce") {
+            s.clone()
+        } else {
+            String::from("Tracker URL not found")
+        };
+
+        // Safely access a nested key
+        let length = if let Some(info_obj) = decoded_value.get("info") {
+            if let Some(Value::Number(n)) = info_obj.get("length") {
+                if let Some(len) = n.as_u64() {
+                    len.to_string()
+                } else {
+                    String::from("Length is not a valid number")
+                }
+            } else {
+                String::from("Length key not found")
+            }
+        } else {
+            String::from("Info object not found")
+        };
+        println!("Tracker URL: {}\nLength: {}", tracker_url, length)        
     } else {
         println!("unknown command: {}", args[1])
     }
