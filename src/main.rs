@@ -21,7 +21,7 @@ struct TorrentFile{
     info: TorrentInfo
 };
 
-fn bencode_ending_index(encoded_value: &[u8]) -> usize {
+fn bencode_ending_index(encoded_value: &str) -> usize {
     if encoded_value.chars().next().unwrap().is_digit(10) {
         let colon_index = encoded_value.find(':').unwrap();
         let number_string = &encoded_value[..colon_index];
@@ -74,7 +74,7 @@ fn bencode_ending_index(encoded_value: &[u8]) -> usize {
 }
 
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &[u8]) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     // If encoded_value starts with a digit, it's a number
     
     let ending_index = bencode_ending_index(encoded_value);
@@ -95,7 +95,7 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> Result<serde_json::Value, Box<
             // println!("List left: {}",&encoded_value[current_index..]);
             let element_end= bencode_ending_index(&encoded_value[current_index..]);
             // println!("Element End: {}",current_index+element_end);
-            list.push(decode_bencoded_value(&encoded_value[current_index..])?);
+            list.push(decode_bencoded_value(&encoded_value[current_index..]));
             current_index+=element_end;
         }
         return serde_json::Value::Array(list);
@@ -112,7 +112,7 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> Result<serde_json::Value, Box<
                 };
             current_index+=key_end;
             let value_end = bencode_ending_index(&encoded_value[current_index..]);
-            let value = decode_bencoded_value(&encoded_value[current_index..])?;
+            let value = decode_bencoded_value(&encoded_value[current_index..]);
             current_index+=value_end;
             list.insert(key,value);
         }
@@ -124,9 +124,8 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> Result<serde_json::Value, Box<
 
 fn parse_torrent_file(path:&str)-> Result<TorrentFile,Box<dyn std::error::Error>>{
     let bytes = std::fs::read(path)?;
-    let decoded_json: serde_json::Value = decode_bencoded_value(&bytes)?;
-    let torrent: TorrentFile = serde_json::from_value(decoded_json)?;
-    Ok(torrent)
+    let torrent: TorrentFile = serde_bencode::de::from_bytes(&bytes)?;
+    OK(torrent)
 }
 
 // Usage: your_program.sh decode "<encoded_value>"
