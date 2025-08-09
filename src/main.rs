@@ -21,38 +21,46 @@ fn bencode_ending_index(encoded_value: &str) -> usize {
             match chars[i] {
                 'l' | 'd' => counter+= 1,
                 'i' => {
+                    // println!("Entry at {}",i);
                     i+=1;
                     while chars[i].is_digit(10){
                         i+=1;
                     }
+                    // println!("Exit at {}",i);
                 },
                 'e' => {
+                    // println!("Entry at {}, {}",i, &counter);
                     counter-=1;
                     if counter ==0{
                         break;
                     }
+                    // println!("Exit at {}, {}",i, &counter);
                 },
                 _ =>{
+                    // println!("Entry at {}",i);
                     if chars[i].is_digit(10) {
                         let mut j = i;
                         while chars[j] != ':' { j += 1; }
                         let len: usize = encoded_value[i..j].parse().unwrap();
                         i = j + len; 
                     }
+                    // println!("Exit at {}",i);
                 }
             }
             i+=1;
         }
-        return i;
+        return i+1;
     }else{
-        panic!("Invalid string");
+        panic!("Invalid string : {}",encoded_value);
     }
 }
 
 #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     // If encoded_value starts with a digit, it's a number
+    
     let ending_index = bencode_ending_index(encoded_value);
+    // println!("Ending Index: {}",ending_index);
     if encoded_value.chars().next().unwrap().is_digit(10) {
         // Example: "5:hello" -> "hello"
         let colon_index = encoded_value.find(':').unwrap();
@@ -65,12 +73,14 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     } else if encoded_value.starts_with("l"){
         let mut list = vec![];
         let mut current_index = 1; 
-        while current_index < ending_index{
+        while current_index < ending_index-1{
+            // println!("List left: {}",&encoded_value[current_index..]);
             let element_end= bencode_ending_index(&encoded_value[current_index..]);
+            // println!("Element End: {}",current_index+element_end);
             list.push(decode_bencoded_value(&encoded_value[current_index..]));
             current_index+=element_end;
         }
-        return serde_json::Value::Array(list.into());
+        return serde_json::Value::Array(list);
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
