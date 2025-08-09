@@ -12,7 +12,7 @@ struct TorrentInfo{
     name: String,
     #[serde(rename="piece length")]
     piece_length: u64,
-    piece: String
+    pieces: String
 }
 
 #[derive(Serialize, Deserialize)]
