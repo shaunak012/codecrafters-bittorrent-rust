@@ -1,10 +1,27 @@
+use serde::{Deserialize, Serialize}
 use serde_json::{Value};
 use std::env;
+use std::path::Path
 
 // Available if you need it!
 // use serde_bencode
 
-fn bencode_ending_index(encoded_value: &str) -> usize {
+#[derive(Serialize, Deserialize)]
+struct TorrentInfo{
+    length: u64,
+    name: String,
+    #[rename="piece length"]
+    piece_length: u64,
+    piece: String
+};
+
+#[derive(Serialize, Deserialize)]
+struct TorrentFile{
+    announce:String,
+    info: TorrentInfo
+};
+
+fn bencode_ending_index(encoded_value: &[u8]) -> usize {
     if encoded_value.chars().next().unwrap().is_digit(10) {
         let colon_index = encoded_value.find(':').unwrap();
         let number_string = &encoded_value[..colon_index];
@@ -57,7 +74,7 @@ fn bencode_ending_index(encoded_value: &str) -> usize {
 }
 
 #[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
+fn decode_bencoded_value(encoded_value: &[u8]) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     // If encoded_value starts with a digit, it's a number
     
     let ending_index = bencode_ending_index(encoded_value);
@@ -78,7 +95,7 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             // println!("List left: {}",&encoded_value[current_index..]);
             let element_end= bencode_ending_index(&encoded_value[current_index..]);
             // println!("Element End: {}",current_index+element_end);
-            list.push(decode_bencoded_value(&encoded_value[current_index..]));
+            list.push(decode_bencoded_value(&encoded_value[current_index..])?);
             current_index+=element_end;
         }
         return serde_json::Value::Array(list);
@@ -95,7 +112,7 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
                 };
             current_index+=key_end;
             let value_end = bencode_ending_index(&encoded_value[current_index..]);
-            let value = decode_bencoded_value(&encoded_value[current_index..]);
+            let value = decode_bencoded_value(&encoded_value[current_index..])?;
             current_index+=value_end;
             list.insert(key,value);
         }
@@ -103,6 +120,13 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     } else {
         panic!("Unhandled encoded value: {}", encoded_value)
     }
+}
+
+fn parse_torrent_file(path:&str)-> Result<TorrentFile,Box<dyn std::error::Error>>{
+    let bytes = std::fs::read(path)?;
+    let decoded_json: serde_json::Value = decode_bencoded_value(&bytes)?;
+    let torrent: TorrentFile = serde_json::from_value(decoded_json)?;
+    Ok(torrent)
 }
 
 // Usage: your_program.sh decode "<encoded_value>"
@@ -119,37 +143,9 @@ fn main() {
         let decoded_value = decode_bencoded_value(encoded_value);
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
-         let file_path = &args[2];
-        let mut file = std::fs::File::open(file_path);
-        let mut buffer: Vec<u8> = Vec::new();
-
-        file.read_to_end(&mut buffer)?; 
-
-        let encoded_value = String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let decoded_value = decode_bencoded_value(&encoded_value);
-        
-        let tracker_url = if let Some(Value::String(s)) = decoded_value.get("announce") {
-            s.clone();
-        } else {
-            String::from("Tracker URL not found");
-        };
-
-        // Safely access a nested key
-        let length = if let Some(info_obj) = decoded_value.get("info") {
-            if let Some(Value::Number(n)) = info_obj.get("length") {
-                if let Some(len) = n.as_u64() {
-                    len.to_string();
-                } else {
-                    String::from("Length is not a valid number");
-                }
-            } else {
-                String::from("Length key not found");
-            }
-        } else {
-            String::from("Info object not found");
-        };
-        
-        println!("Tracker URL: {}\nLength: {}", tracker_url, length);        
+        let file_path = Path::new(&args[2]);
+        let content = parse_torrent_file(file_path);
+        println!("Tracker URL: {}\nLength: {}", content.tracker_url, content.length);        
     } else {
         println!("unknown command: {}", args[1]);
     }
