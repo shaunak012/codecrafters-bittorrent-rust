@@ -143,7 +143,7 @@ fn main() {
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
         let file_path = Path::new(&args[2]);
-        let content: TorrentFile = parse_torrent_file(file_path)?;
+        let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);        
     } else {
         println!("unknown command: {}", args[1]);
