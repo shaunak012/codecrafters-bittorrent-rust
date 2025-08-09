@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 use std::env;
 use std::path::Path;
+use sha1::{Digest, Sha1};
 
 // Available if you need it!
 // use serde_bencode
@@ -145,7 +146,18 @@ fn main() {
     } else if command == "info" {
         let file_path = Path::new(&args[2]);
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
-        println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);        
+        println!("Tracker URL: {}\nLength: {}", content.announce, content.info.length);
+
+        let info_encoded = serde_bencode::to_bytes(&content.info).context("re-encode info section")?;
+        let mut hasher = Sha1::new();
+        hasher.update(&info_encoded);
+        let info_hash = hasher.finalize();
+        println!("Info Hash: {}", hex::encode(&info_hash)); 
+        println!("Piece Length: {}",content.info.piece_length);
+        println!("Piece Hashes:\n");
+        for hash in content.info.pieces.chunks(20) {
+            println!("{}", hex::encode(&hash));
+        }
     } else {
         println!("unknown command: {}", args[1]);
     }
