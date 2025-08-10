@@ -31,6 +31,16 @@ struct TrackerResponse{
     peers: String
 }
 
+#[derive(Serialize, Deserialize)]
+struct TrackerRequest{
+    peer_id:String,
+    port:u16,
+    uploaded:usize,
+    downloaded: usize,
+    left:usize,
+    compact:u8
+}
+
 fn bencode_ending_index(encoded_value: &str) -> usize {
     if encoded_value.chars().next().unwrap().is_digit(10) {
         let colon_index = encoded_value.find(':').unwrap();
@@ -146,6 +156,15 @@ fn info_hash_generator(content: &TorrentFile) -> Digest{
     return info_hash;
 }
 
+fn urlencode(t: &[u8; 20]) -> String {
+    let mut encoded = String::with_capacity(3 * t.len());
+    for &byte in t {
+        encoded.push('%');
+        encoded.push_str(&hex::encode(&[byte]));
+    }
+    encoded
+}
+
 // Usage: your_program.sh decode "<encoded_value>"
 #[tokio::main]
 fn main() {
@@ -179,11 +198,19 @@ fn main() {
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         let info_hash=info_hash_generator(&content);
 
-        let params = serde_urlencoded::to_string({"info_hash": urlencoding::encode(info_hash), "peer_id":String::from("00112233445566778899"), "port":6881, "uploaded":0, "downloaded":0, "left":content.info.length, "compact":1});
-        let response = reqwest::get(content.announce).query(&params).send().await?;
-        let body: TrackerResponse = response.text().await?;
+        let tracker= TrackerRequest {peer_id:String::from("00112233445566778899"), port:6881, uploaded:0, downloaded:0, left:content.info.length, compact:1}
+        let params = serde_urlencoded::to_string(tracker);
+        let tracker_url = format!(
+                "{}?{}&info_hash={}",
+                content.announce,
+                url_params,
+                &urlencode(&info_hash)
+            );
+         let response = reqwest::get(tracker_url).await.context("query tracker")?;
+        let response = response.bytes().await.context("fetch tracker response")?;
+        let response: TrackerResponse = serde_bencode::from_bytes(&response).context("parse tracker response")?;
 
-        for chunk in body.peers.as_bytes().chunks_exact(6) {
+        for chunk in response.peers.as_bytes().chunks_exact(6) {
             let ip_bytes: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
             let ip_address = std::net::Ipv4Addr::from(ip_bytes);
 
@@ -192,6 +219,6 @@ fn main() {
             println!("{}:{}", ip_address, port);
         }
     } else {
-        println!("unknown command: {}", args[1]);
+        println!("unknown command: {}", args[1])s;
     }
 }
