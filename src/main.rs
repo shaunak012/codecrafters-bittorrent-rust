@@ -179,7 +179,7 @@ fn main() {
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         let info_hash=info_hash_generator(&content);
 
-        let params = serde_urlencoded::to_string({("info_hash", urlencoding::encode(info_hash)), ("peer_id",String::from("00112233445566778899")), ("port",6881), ("uploaded",0), ("downloaded",0), ("left",content.info.length), ("compact",1)});
+        let params = serde_urlencoded::to_string({"info_hash": urlencoding::encode(info_hash), "peer_id":String::from("00112233445566778899"), "port":6881, "uploaded":0, "downloaded":0, "left":content.info.length, "compact":1});
         let response = reqwest::get(content.announce).query(&params).send().await?;
         let body: TrackerResponse = response.text().await?;
 
