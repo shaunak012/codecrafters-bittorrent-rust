@@ -1,160 +1,26 @@
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use reqwest;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::env;
+use std::io::{Read, Write};
 use std::path::Path;
+use std::net::TcpStream;
+use rand::Rng;
 use tokio;
-
-// Available if you need it!
 use serde_bencode;
 
-#[derive(Serialize, Deserialize)]
-struct TorrentInfo {
-    length: u64,
-    name: String,
-    #[serde(rename = "piece length")]
-    piece_length: u64,
-    #[serde(with = "serde_bytes")]
-    pieces: Vec<u8>,
-}
+use crate::bencoding::decode_bencoded_value;
 
-#[derive(Serialize, Deserialize)]
-struct TorrentFile {
-    announce: String,
-    info: TorrentInfo,
-}
+mod models;
+mod bencoding;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TrackerResponse {
-    interval: u64,
-    #[serde(with = "serde_bytes")]
-    peers: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TrackerRequest {
-    peer_id: String,
-    port: u16,
-    uploaded: usize,
-    downloaded: usize,
-    left: u64,
-    compact: u8,
-}
-
-fn bencode_ending_index(encoded_value: &str) -> usize {
-    if encoded_value.chars().next().unwrap().is_digit(10) {
-        let colon_index = encoded_value.find(':').unwrap();
-        let number_string = &encoded_value[..colon_index];
-        let number = number_string.parse::<usize>().unwrap();
-        return colon_index + 1 + number;
-    } else if encoded_value.starts_with("i") {
-        let ending_index = encoded_value
-            .find('e')
-            .expect("Invalid bencoded integer format");
-        return ending_index + 1;
-    } else if encoded_value.starts_with("l") || encoded_value.starts_with("d") {
-        let mut counter = 0;
-        let mut i = 0;
-        let chars: Vec<char> = encoded_value.chars().collect();
-        while i < chars.len() {
-            match chars[i] {
-                'l' => counter += 1,
-                'd' => counter += 1,
-                'i' => {
-                    // println!("Entry at {}",i);
-                    i += 1;
-                    while chars[i].is_digit(10) {
-                        i += 1;
-                    }
-                    // println!("Exit at {}",i);
-                }
-                'e' => {
-                    // println!("Entry at {}, {}",i, &counter);
-                    counter -= 1;
-                    if counter == 0 {
-                        break;
-                    }
-                    // println!("Exit at {}, {}",i, &counter);
-                }
-                _ => {
-                    // println!("Entry at {}",i);
-                    if chars[i].is_digit(10) {
-                        let mut j = i;
-                        while chars[j] != ':' {
-                            j += 1;
-                        }
-                        let len: usize = encoded_value[i..j].parse().unwrap();
-                        i = j + len;
-                    }
-                    // println!("Exit at {}",i);
-                }
-            }
-            i += 1;
-        }
-        return i + 1;
-    } else {
-        panic!("Invalid string : {}", encoded_value);
-    }
-}
-
-#[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> Value {
-    // If encoded_value starts with a digit, it's a number
-
-    let ending_index = bencode_ending_index(encoded_value);
-    // println!("Ending Index: {}",ending_index);
-    if encoded_value.chars().next().unwrap().is_digit(10) {
-        // Example: "5:hello" -> "hello"
-        let colon_index = encoded_value.find(':').unwrap();
-        let string = &encoded_value[colon_index + 1..ending_index];
-        return Value::String(string.to_string());
-    } else if encoded_value.starts_with("i") {
-        let number_part = &encoded_value[1..ending_index - 1];
-        let number = number_part.parse::<i64>().unwrap();
-        return Value::Number(number.into());
-    } else if encoded_value.starts_with("l") {
-        let mut list = vec![];
-        let mut current_index = 1;
-        while current_index < ending_index - 1 {
-            // println!("List left: {}",&encoded_value[current_index..]);
-            let element_end = bencode_ending_index(&encoded_value[current_index..]);
-            // println!("Element End: {}",current_index+element_end);
-            list.push(decode_bencoded_value(&encoded_value[current_index..]));
-            current_index += element_end;
-        }
-        return Value::Array(list);
-    } else if encoded_value.starts_with("d") {
-        let mut list = serde_json::Map::new();
-        let mut current_index = 1;
-        while current_index < ending_index - 1 {
-            let key_end = bencode_ending_index(&encoded_value[current_index..]);
-            let key = match decode_bencoded_value(&encoded_value[current_index..]) {
-                Value::String(k) => k,
-                k => {
-                    panic!("dict keys must be strings, not {k:?}");
-                }
-            };
-            current_index += key_end;
-            let value_end = bencode_ending_index(&encoded_value[current_index..]);
-            let value = decode_bencoded_value(&encoded_value[current_index..]);
-            current_index += value_end;
-            list.insert(key, value);
-        }
-        return Value::Object(list);
-    } else {
-        panic!("Unhandled encoded value: {}", encoded_value)
-    }
-}
-
-fn parse_torrent_file(path: &Path) -> Result<TorrentFile, Box<dyn std::error::Error>> {
+fn parse_torrent_file(path: &Path) -> Result<models::TorrentFile, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(path)?;
-    let torrent: TorrentFile = serde_bencode::de::from_bytes(&bytes)?;
+    let torrent: models::TorrentFile = serde_bencode::de::from_bytes(&bytes)?;
     Ok(torrent)
 }
 
-fn info_hash_generator(content: &TorrentFile) -> String {
+fn info_hash_generator(content: &models::TorrentFile) -> String {
     let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
     let mut hasher = Sha1::new();
     hasher.update(&info_encoded);
@@ -162,7 +28,7 @@ fn info_hash_generator(content: &TorrentFile) -> String {
     hex::encode(info_hash)
 }
 
-fn info_hash_url_encoded(content: &TorrentFile) -> String {
+fn info_hash_url_encoded(content: &models::TorrentFile) -> String {
     let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
     let mut hasher = Sha1::new();
     hasher.update(&info_encoded);
@@ -186,7 +52,7 @@ async fn main() {
         println!("{}", decoded_value.to_string());
     } else if command == "info" {
         let file_path = Path::new(&args[2]);
-        let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
+        let content: models::TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         println!(
             "Tracker URL: {}\nLength: {}",
             content.announce, content.info.length
@@ -201,28 +67,23 @@ async fn main() {
         }
     } else if command == "peers" {
         let file_path = Path::new(&args[2]);
-        let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
+        let content: models::TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
         let info_hash = info_hash_url_encoded(&content);
 
-        let tracker = TrackerRequest {
+        let tracker = models::TrackerRequest {
             peer_id: String::from("00112233445566778899"),
             port: 6881,
             uploaded: 0,
             downloaded: 0,
             left: content.info.length,
-            compact: 1,
+            compact: 1
         };
         println!("Info Hash:{}", info_hash);
         let params = serde_urlencoded::to_string(tracker).unwrap();
         let tracker_url = format!("{}?{}&info_hash={}", content.announce, params, info_hash);
         println!("{}", tracker_url);
-        let bytes = reqwest::get(tracker_url)
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-        let response: TrackerResponse = serde_bencode::de::from_bytes(bytes.as_ref()).expect("msg");
+        let bytes = reqwest::get(tracker_url).await.unwrap().bytes().await.unwrap();
+        let response: models::TrackerResponse = serde_bencode::de::from_bytes(bytes.as_ref()).expect("msg");
 
         for chunk in response.peers.chunks_exact(6) {
             let ip_bytes: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
@@ -232,6 +93,45 @@ async fn main() {
             let port = u16::from_be_bytes(port_bytes);
             println!("{}:{}", ip_address, port);
         }
+    } else if command=="handshake"{ 
+        let file_path = Path::new(&args[2]);
+        let content: models::TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
+        
+        let addr= &args[3];
+        let info_hash = {
+            let mut hasher = Sha1::new();
+            hasher.update(serde_bencode::to_bytes(&content.info).unwrap());
+            hasher.finalize().to_vec()
+        };
+        assert_eq!(info_hash.len(), 20);
+
+        // Generate random peer ID (20 bytes)
+        let mut peer_id = [0u8; 20];
+        rand::rng().fill(&mut peer_id);
+
+        // Connect to peer
+        let mut stream = TcpStream::connect(&addr).expect("Couldn't connect to the server...");
+        println!("Connected to peer {}", addr);
+
+        // Build handshake message
+        let mut handshake = Vec::new();
+        handshake.push(19u8); // length of protocol string
+        handshake.extend_from_slice(b"BitTorrent protocol");
+        handshake.extend_from_slice(&[0u8; 8]); // reserved bytes
+        handshake.extend_from_slice(&info_hash); // info hash (20 bytes)
+        handshake.extend_from_slice(&peer_id); // peer id (20 bytes)
+
+        // Send handshake
+        stream.write(&handshake).expect("Couldn't Write to stream...");
+        println!("Handshake sent");
+
+        // Read handshake back (68 bytes total)
+        let mut response = [0u8; 68];
+        stream.read_exact(&mut response).expect("Couldn't read response...");
+
+        // Extract peer id from response
+        let received_peer_id = &response[48..68];
+        println!("Peer ID: {}", hex::encode(received_peer_id));
     } else {
         println!("unknown command: {}", args[1]);
     }
