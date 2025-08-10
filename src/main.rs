@@ -1,3 +1,4 @@
+use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,10 +26,11 @@ struct TorrentFile {
     info: TorrentInfo,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct TrackerResponse {
-    interval: i32,
-    peers: String,
+    interval: u64,
+    #[serde(with = "serde_bytes")]
+    peers: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -152,7 +154,7 @@ fn parse_torrent_file(path: &Path) -> Result<TorrentFile, Box<dyn std::error::Er
     Ok(torrent)
 }
 
-fn info_hash_generator(content: &TorrentFile) -> String  {
+fn info_hash_generator(content: &TorrentFile) -> String {
     let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
     let mut hasher = Sha1::new();
     hasher.update(&info_encoded);
@@ -160,13 +162,12 @@ fn info_hash_generator(content: &TorrentFile) -> String  {
     hex::encode(info_hash)
 }
 
-fn urlencode(t: &[u8; 20]) -> String {
-    let mut encoded = String::with_capacity(3 * t.len());
-    for &byte in t {
-        encoded.push('%');
-        encoded.push_str(&hex::encode(&[byte]));
-    }
-    encoded
+fn info_hash_url_encoded(content: &TorrentFile) -> String {
+    let info_encoded = serde_bencode::to_bytes(&content.info).unwrap();
+    let mut hasher = Sha1::new();
+    hasher.update(&info_encoded);
+    let info_hash = hasher.finalize();
+    percent_encode(&info_hash, NON_ALPHANUMERIC).to_string()
 }
 
 // Usage: your_program.sh decode "<encoded_value>"
@@ -201,7 +202,7 @@ async fn main() {
     } else if command == "peers" {
         let file_path = Path::new(&args[2]);
         let content: TorrentFile = parse_torrent_file(file_path).expect("Could not parse file");
-        let info_hash = info_hash_generator(&content);
+        let info_hash = info_hash_url_encoded(&content);
 
         let tracker = TrackerRequest {
             peer_id: String::from("00112233445566778899"),
@@ -211,16 +212,19 @@ async fn main() {
             left: content.info.length,
             compact: 1,
         };
+        println!("Info Hash:{}", info_hash);
         let params = serde_urlencoded::to_string(tracker).unwrap();
-        let tracker_url = format!(
-            "{}?{}&info_hash={}",
-            content.announce,
-            params,
-            info_hash
-        );
-        let bytes = reqwest::get(tracker_url).await.unwrap().bytes().await.unwrap();
-        let response: TrackerResponse = serde_bencode::de::from_bytes(bytes.as_ref()).unwrap();
-        for chunk in response.peers.as_bytes().chunks_exact(6) {
+        let tracker_url = format!("{}?{}&info_hash={}", content.announce, params, info_hash);
+        println!("{}", tracker_url);
+        let bytes = reqwest::get(tracker_url)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let response: TrackerResponse = serde_bencode::de::from_bytes(bytes.as_ref()).expect("msg");
+
+        for chunk in response.peers.chunks_exact(6) {
             let ip_bytes: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
             let ip_address = std::net::Ipv4Addr::from(ip_bytes);
 
